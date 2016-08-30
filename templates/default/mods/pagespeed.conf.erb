@@ -20,6 +20,25 @@
     # by the apache user (as specified by the User directive).
     ModPagespeedFileCachePath            "/var/cache/mod_pagespeed/"
 
+    # LogDir is needed to store various logs, including the statistics log
+    # required for the console.
+    ModPagespeedLogDir "/var/log/pagespeed"
+
+    # The locations of SSL Certificates is distribution-dependent.
+    ModPagespeedSslCertDirectory "/etc/ssl/certs"
+    
+
+    # If you want, you can use one or more memcached servers as the store for
+    # the mod_pagespeed cache.
+    # ModPagespeedMemcachedServers localhost:11211
+    <% if node['apache']['pagespeed']['memcached_servers'] %>
+      <%= node['apache']['pagespeed']['memcached_servers'] %>
+    <% end %>  
+
+    # A portion of the cache can be kept in memory only, to reduce load on disk
+    # (or memcached) from many small files.
+    # ModPagespeedCreateSharedMemoryMetadataCache "/var/cache/mod_pagespeed/" 51200
+
     # Override the mod_pagespeed 'rewrite level'. The default level
     # "CoreFilters" uses a set of rewrite filters that are generally
     # safe for most web pages. Most sites should not need to change
@@ -48,6 +67,27 @@
     # ModPagespeedEnableFilters rewrite_javascript,rewrite_css
     # ModPagespeedEnableFilters collapse_whitespace,elide_attributes
 
+    # Explicitly forbids the enabling of specific filters using either query
+    # parameters or request headers. This is useful, for example, when we do
+    # not want the filter to run for performance or security reasons. This
+    # directive contains a comma-separated list of filter names, and can be
+    # repeated.
+    #
+    # ModPagespeedForbidFilters rewrite_images
+
+    # How long mod_pagespeed will wait to return an optimized resource
+    # (per flush window) on first request before giving up and returning the
+    # original (unoptimized) resource. After this deadline is exceeded the
+    # original resource is returned and the optimization is pushed to the
+    # background to be completed for future requests. Increasing this value will
+    # increase page latency, but might reduce load time (for instance on a
+    # bandwidth-constrained link where it's worth waiting for image
+    # compression to complete). If the value is less than or equal to zero
+    # mod_pagespeed will wait indefinitely for the rewrite to complete before
+    # returning.
+    #
+    # ModPagespeedRewriteDeadlinePerFlushMs 10
+
     # ModPagespeedDomain
     # authorizes rewriting of JS, CSS, and Image files found in this
     # domain. By default only resources with the same origin as the
@@ -58,10 +98,25 @@
     # This will allow resources found on http://cdn.myhost.com to be
     # rewritten in addition to those in the same domain as the HTML.
     #
+    # Other domain-related directives (like ModPagespeedMapRewriteDomain
+    # and ModPagespeedMapOriginDomain) can also authorize domains.
+    #
     # Wildcards (* and ?) are allowed in the domain specification. Be
     # careful when using them as if you rewrite domains that do not
     # send you traffic, then the site receiving the traffic will not
     # know how to serve the rewritten content.
+
+    # If you use downstream caches such as varnish or proxy_cache for caching
+    # HTML, you can configure pagespeed to work with these caches correctly
+    # using the following directives. Note that the values for
+    # ModPagespeedDownstreamCachePurgeLocationPrefix and
+    # ModPagespeedDownstreamCacheRebeaconingKey are deliberately left empty here
+    # in order to force the webmaster to choose appropriate value for these.
+    #
+    # ModPagespeedDownstreamCachePurgeLocationPrefix
+    # ModPagespeedDownstreamCachePurgeMethod PURGE
+    # ModPagespeedDownstreamCacheRewrittenPercentageThreshold 95
+    # ModPagespeedDownstreamCacheRebeaconingKey
 
     # Other defaults (cache sizes and thresholds):
     #
@@ -69,13 +124,15 @@
     # ModPagespeedFileCacheCleanIntervalMs 3600000
     # ModPagespeedLRUCacheKbPerProcess     1024
     # ModPagespeedLRUCacheByteLimit        16384
-    # ModPagespeedCssFlattenMaxBytes       2048
+    # ModPagespeedCssFlattenMaxBytes       102400
     # ModPagespeedCssInlineMaxBytes        2048
-    # ModPagespeedCssImageInlineMaxBytes   2048
-    # ModPagespeedImageInlineMaxBytes      2048
+    # ModPagespeedCssImageInlineMaxBytes   0
+    # ModPagespeedImageInlineMaxBytes      3072
     # ModPagespeedJsInlineMaxBytes         2048
     # ModPagespeedCssOutlineMinBytes       3000
     # ModPagespeedJsOutlineMinBytes        3000
+    # ModPagespeedMaxCombinedCssBytes      -1
+    # ModPagespeedMaxCombinedJsBytes       92160
 
     # Limit the number of inodes in the file cache. Set to 0 for no limit.
     # The default value if this paramater is not specified is 0 (no limit).
@@ -99,11 +156,61 @@
     # ModPagespeedNumRewriteThreads 4
     # ModPagespeedNumExpensiveRewriteThreads 4
 
+    # Randomly drop rewrites (*) to increase the chance of optimizing
+    # frequently fetched resources and decrease the chance of optimizing
+    # infrequently fetched resources. This can reduce CPU load. The default
+    # value of this parameter is 0 (no drops).  90 means that a resourced
+    # fetched once has a 10% probability of being optimized while a resource
+    # that is fetched 50 times has a 99.65% probability of being optimized.
+    #
+    # (*) Currently only CSS files and images are randomly dropped.  Images
+    # within CSS files are not randomly dropped.
+    #
+    # ModPagespeedRewriteRandomDropPercentage 90
+
+    # Many filters modify the URLs of resources in HTML files. This is typically
+    # harmless but pages whose Javascript expects to read or modify the original
+    # URLs may break. The following parameters prevent filters from modifying
+    # URLs of their respective types.
+    #
+    # ModPagespeedJsPreserveURLs on
+    # ModPagespeedImagePreserveURLs on
+    # ModPagespeedCssPreserveURLs on
+
+    # When PreserveURLs is on, it is still possible to enable browser-specific
+    # optimizations (for example, webp images can be served to browsers that
+    # will accept them).  They'll be served with Vary: Accept or Vary:
+    # User-Agent headers as appropriate.  Note that this may require configuring
+    # reverse proxy caches such as varnish to handle these headers properly.
+    #
+    # ModPagespeedFilters in_place_optimize_for_browser
+
+    # Internet Explorer has difficulty caching resources with Vary: headers.
+    # They will either be uncached (older IE) or require revalidation.  See:
+    # http://blogs.msdn.com/b/ieinternals/archive/2009/06/17/vary-header-prevents-caching-in-ie.aspx
+    # As a result we serve them as Cache-Control: private instead by default.
+    # If you are using a reverse proxy or CDN configured to cache content with
+    # the Vary: Accept header you should turn this setting off.
+    #
+    # ModPagespeedPrivateNotVaryForIE on
 
     # Settings for image optimization:
     #
-    # Jpeg recompression quality (0 to 100, -1 strips metadata):
+    # Lossy image recompression quality (0 to 100, -1 just strips metadata):
+    # ModPagespeedImageRecompressionQuality 85
+    #
+    # Jpeg recompression quality (0 to 100, -1 uses ImageRecompressionQuality):
     # ModPagespeedJpegRecompressionQuality -1
+    # ModPagespeedJpegRecompressionQualityForSmallScreens 70
+    #
+    # WebP recompression quality (0 to 100, -1 uses ImageRecompressionQuality):
+    # ModPagespeedWebpRecompressionQuality 80
+    # ModPagespeedWebpRecompressionQualityForSmallScreens 70
+    #
+    # Timeout for conversions to WebP format, in
+    # milliseconds. Negative values mean no timeout is applied. The
+    # default value is -1:
+    # ModPagespeedWebpTimeoutMs 5000
     #
     # Percent of original image size below which optimized images are retained:
     # ModPagespeedImageLimitOptimizedPercent 100
@@ -112,14 +219,16 @@
     # attempted:
     # ModPagespeedImageLimitResizeAreaPercent 100
 
-    # When Apache is set up as a browser proxy, mod_pagespeed can record
-    # web-sites as they are requested, so that an image of the web is built up
-    # in the directory of the proxy administrator's choosing.  When ReadOnly is
-    # on, only files already present in the SlurpDirectory are served by the
-    # proxy.
+    # Settings for inline preview images
     #
-    # ModPagespeedSlurpDirectory ...
-    # ModPagespeedSlurpReadOnly on
+    # Setting this to n restricts preview images to the first n images found on
+    # the page.  The default of -1 means preview images can appear anywhere on
+    # the page (if those images appear above the fold).
+    # ModPagespeedMaxInlinedPreviewImagesIndex -1
+
+    # Sets the minimum size in bytes of any image for which a low quality image
+    # is generated.
+    # ModPagespeedMinImageSizeLowResolutionBytes 3072
 
     # The maximum URL size is generally limited to about 2k characters
     # due to IE: See http://support.microsoft.com/kb/208427/EN-US.
@@ -141,8 +250,9 @@
     # option enabled, mod_pagespeed uses a simple heuristic to decide
     # not to rename JavaScript that it thinks is introspective.
     #
-    # You can turn this off to let mod_pagespeed rename all JS files.
-    ModPagespeedAvoidRenamingIntrospectiveJavascript on
+    # You can uncomment this to let mod_pagespeed rename all JS files.
+    #
+    # ModPagespeedAvoidRenamingIntrospectiveJavascript off
 
     # Certain common JavaScript libraries are available from Google, which acts
     # as a CDN and allows you to benefit from browser caching if a new visitor
@@ -151,22 +261,21 @@
     #
     # ModPagespeedEnableFilters canonicalize_javascript_libraries
 
-    # The following lines configure libraries that are recognized by
-    # canonicalize_javascript_libraries.  These will have no effect unless you
+    # The following line configures a library that is recognized by
+    # canonicalize_javascript_libraries.  This will have no effect unless you
     # enable this filter (generally by uncommenting the last line in the
-    # previous stanza).  It simply provides a sensible default configuration
-    # when the filter is switched on.
-    # The format is:
+    # previous stanza).  The format is:
     #    ModPagespeedLibrary bytes md5 canonical_url
     # Where bytes and md5 are with respect to the *minified* JS; use
     # js_minify --print_size_and_hash to obtain this data.
     # Note that we can register multiple hashes for the same canonical url;
     # we do this if there are versions available that have already been minified
     # with more sophisticated tools.
-    ModPagespeedLibrary 105527 ltVVzzYxo0 //ajax.googleapis.com/ajax/libs/prototype/1.6.1.0/prototype.js
-    ModPagespeedLibrary 92501 J8KF47pYOq //ajax.googleapis.com/ajax/libs/jquery/1.8.0/jquery.min.js
-    ModPagespeedLibrary 141547 GKjMUuF4PK //ajax.googleapis.com/ajax/libs/jquery/1.8.0/jquery.min.js
-    ModPagespeedLibrary 43 1o978_K0_L http://www.modpagespeed.com/rewrite_javascript.js
+    #
+    # Additional library configuration can be found in
+    # pagespeed_libraries.conf included in the distribution.  You should add
+    # new entries here, though, so that file can be automatically upgraded.
+    # ModPagespeedLibrary 43 1o978_K0_LNE5_ystNklf http://www.modpagespeed.com/rewrite_javascript.js
 
     # Explicitly tell mod_pagespeed to load some resources from disk.
     # This will speed up load time and update frequency.
@@ -199,78 +308,41 @@
 
     # Uncomment the following line so that ModPagespeed will not cache or
     # rewrite resources with Vary: in the header, e.g. Vary: User-Agent.
+    # Note that ModPagespeed always respects Vary: headers on html content.
     # ModPagespeedRespectVary on
-
-    # This handles the client-side instrumentation callbacks which are injected
-    # by the add_instrumentation filter.
-    # You can use a different location by adding the ModPagespeedBeaconUrl
-    # directive; see the documentation on add_instrumentation.
-    <Location /mod_pagespeed_beacon>
-          SetHandler mod_pagespeed_beacon
-    </Location>
 
     # Uncomment the following line if you want to disable statistics entirely.
     #
     # ModPagespeedStatistics off
 
-    # This page lets you view statistics about the mod_pagespeed module.
-    <Location /mod_pagespeed_statistics>
+    # These handlers are central entry-points into the admin pages.
+    # By default, pagespeed_admin and pagespeed_global_admin present
+    # the same data, and differ only when
+    # ModPagespeedUsePerVHostStatistics is enabled.  In that case,
+    # /pagespeed_global_admin sees aggregated data across all vhosts,
+    # and the /pagespeed_admin sees data only for a particular vhost.
+    #
+    # You may insert other "Allow from" lines to add hosts you want to
+    # allow to look at generated statistics.  Another possibility is
+    # to comment out the "Order" and "Allow" options from the config
+    # file, to allow any client that can reach your server to access
+    # and change server state, such as statistics, caches, and
+    # messages.  This might be appropriate in an experimental setup.
+    <Location /pagespeed_admin>
         Order allow,deny
-        # You may insert other "Allow from" lines to add hosts you want to
-        # allow to look at generated statistics.  Another possibility is
-        # to comment out the "Order" and "Allow" options from the config
-        # file, to allow any client that can reach your server to examine
-        # statistics.  This might be appropriate in an experimental setup or
-        # if the Apache server is protected by a reverse proxy that will
-        # filter URLs in some fashion.
         Allow from localhost
         Allow from 127.0.0.1
-        SetHandler mod_pagespeed_statistics
+        SetHandler pagespeed_admin
     </Location>
-
-    # Uncomment the following line if you want to enable statistics logging.
-    # ModPagespeedStatistics is required to be enabled.
-    #
-    # ModPagespeedStatisticsLogging on
-    #
-    # The base filename to use to store logged statistics.
-    # Required if logging is enabled.
-    #
-    # ModPagespeedStatisticsLoggingFile "@@MOD_PAGESPEED_STATS_LOG@@"
-    #
-    # The interval at which statistics will be logged, in milliseconds.
-    # Optional; default is 3000.
-    #
-    # ModPagespeedStatisticsLoggingIntervalMs 3000
-
-    # If both of the below are set, the console will use offline copies of the
-    # files needed for the Google Chart Tools API rather than connecting to the
-    # Internet to obtain them. This is experimental, as the only supported
-    # loading mechanism for the Chart Tools API requires an Internet connexion.
-    #
-    # Where to find an offline copy of the CSS file required for the Google
-    # Chart Tools API. At the time of writing, the Google Chart Tools API CSS
-    # file can be found at:
-    # https://ajax.googleapis.com/ajax/static/modules/gviz/1.0/core/tooltip.css
-    #
-    # ModPagespeedStatisticsLoggingChartsCSS http://example.com/charts.css
-    #
-    # Where to find an offline copy of the JS file required for the Google
-    # Chart Tools API. At the time of writing, the Google Chart Tools API JS
-    # file can be found at:
-    # https://www.google.com/uds/api/visualization/1.0/d7d36793f7a886b687850d2813583db9/format+en,default,corechart.I.js
-    #
-    # ModPagespeedStatisticsLoggingChartsJS http://example.com/charts.js
-
-    # This page lets you view a graphical console displaying statistics about
-    # the mod_pagespeed module.
-    <Location /mod_pagespeed_console>
+    <Location /pagespeed_global_admin>
         Order allow,deny
-        # This can be configured similarly to mod_pagespeed_statistics above.
         Allow from localhost
         Allow from 127.0.0.1
-        SetHandler mod_pagespeed_console
+        SetHandler pagespeed_global_admin
     </Location>
+
+    # Enable logging of mod_pagespeed statistics, needed for the console.
+    ModPagespeedStatisticsLogging on
 
     # Page /mod_pagespeed_message lets you view the latest messages from
     # mod_pagespeed, regardless of log-level in your httpd.conf
@@ -279,15 +351,4 @@
     # its default value is 100k bytes.
     # Set it to 0 if you want to disable this feature.
     ModPagespeedMessageBufferSize 100000
-
-    <Location /mod_pagespeed_message>
-        Allow from localhost
-        Allow from 127.0.0.1
-        SetHandler mod_pagespeed_message
-    </Location>
-    <Location /mod_pagespeed_referer_statistics>
-        Allow from localhost
-        Allow from 127.0.0.1
-        SetHandler mod_pagespeed_referer_statistics
-    </Location>
 </IfModule>
