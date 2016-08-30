@@ -30,7 +30,7 @@ if platform_family?('debian')
   end
 
   apache_module 'pagespeed' do
-    filename node['apache']['version'] == '2.4' ? 'mod_pagespeed_ap24' : 'mod_pagespeed'
+    filename node['apache']['version'] == '2.4' ? 'mod_pagespeed_ap24.so' : 'mod_pagespeed.so'
     conf true
   end
 else
