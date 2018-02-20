@@ -43,3 +43,9 @@ export LANG
 #export APACHE2_MAINTSCRIPT_DEBUG=1
 
 APACHE_STATUSURL=<%= node['apache']['status_url'] %>
+
+# source additional envvars from separate file:
+[ -r /etc/apache2/envvars.local ] && . /etc/apache2/envvars.local
+
+# return code 0:
+:
