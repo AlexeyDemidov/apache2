@@ -32,8 +32,12 @@
     # the mod_pagespeed cache.
     # ModPagespeedMemcachedServers localhost:11211
     <% if node['apache']['pagespeed']['memcached_servers'] %>
-      ModPagespeedMemcachedServers <%= node['apache']['pagespeed']['memcached_servers'] %>
+    ModPagespeedMemcachedServers <%= node['apache']['pagespeed']['memcached_servers'] %>
     <% end %>  
+
+    <% if node['apache']['pagespeed']['redis_server'] %>
+    ModPagespeedRedisServer <%= node['apache']['pagespeed']['redis_server'] %>
+    <% end %>
 
     # A portion of the cache can be kept in memory only, to reduce load on disk
     # (or memcached) from many small files.
