@@ -70,6 +70,9 @@
     #
     # ModPagespeedEnableFilters rewrite_javascript,rewrite_css
     # ModPagespeedEnableFilters collapse_whitespace,elide_attributes
+    <% if node['apache']['pagespeed']['enable_filters'] %>
+      ModPagespeedEnableFilters <%= node['apache']['pagespeed']['enable_filters'] %>
+    <% end %>
 
     # Explicitly forbids the enabling of specific filters using either query
     # parameters or request headers. This is useful, for example, when we do
